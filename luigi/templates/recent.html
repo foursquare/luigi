@@ -4,7 +4,9 @@
     <tr>
     <th>Name</th>
     <th>Host</th>
-    <th>Last Action</th>
+    <th>Scheduling</th>
+    <th>Execution</th>
+    <th>Completion</th>
     <th>Status</th>
   </tr>
   </thead>
@@ -13,8 +15,10 @@
       <tr>
         <td><a href="/history/by_id/{{task.id}}">{{task.name}}</a></td>
         <td>{{task.host}}</td>
-        <td>{{task.events[0].ts}}</td>
-        <td>{{task.events[0].event_name}}</td>
+        <td>{{task.scheduling_ts}}</td>
+        <td>{{task.execution_ts}}</td>
+        <td>{{task.completion_ts}}</td>
+        <td>{{task.status}}</td>
       </tr>
     {% end %}
   </tbody>

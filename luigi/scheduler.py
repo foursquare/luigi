@@ -22,6 +22,7 @@ import time
 import cPickle as pickle
 import bisect
 import task_history as history
+import Queue
 logger = logging.getLogger("luigi.server")
 
 from task_status import PENDING, FAILED, DONE, RUNNING, SUSPENDED, UNKNOWN, DISABLED
@@ -264,6 +265,12 @@ class CentralPlannerScheduler(Scheduler):
         self._state = SimpleTaskState(state_path)
 
         self._task_history = task_history
+        self._history_queue = Queue.Queue()
+        if self._task_history:
+            for i in range(10):
+                w = history.HistoryWorker(self._history_queue, self._task_history)
+                w.setDaemon(True)
+                w.start()
         self._resources = resources
         self._disable_failures = disable_failures
         self._disable_window = disable_window
@@ -394,6 +401,7 @@ class CentralPlannerScheduler(Scheduler):
         """
         self.update(worker)
 
+        should_update_history = not self._state.has_task(task_id)
         task = self._state.get_task(task_id, setdefault=self._make_task(
                 id=task_id, status=PENDING, deps=deps, resources=resources,
                 priority=priority, family=family, params=params))
@@ -413,7 +421,7 @@ class CentralPlannerScheduler(Scheduler):
                 # Update the DB only if there was a acctual change, to prevent noise.
                 # We also check for status == PENDING b/c that's the default value
                 # (so checking for status != task.status woule lie)
-                self._update_task_history(task_id, status)
+                should_update_history = True
             self.set_status(task, PENDING if status == SUSPENDED else status)
             if status == FAILED:
                 task.retry = time.time() + self._retry_delay
@@ -440,6 +448,9 @@ class CentralPlannerScheduler(Scheduler):
 
         if expl is not None:
             task.expl = expl
+
+        if should_update_history:
+            self._update_task_history(task_id, task.status, deps)
 
     def add_worker(self, worker, info):
         self._state.get_worker(worker).add_info(info)
@@ -729,18 +740,9 @@ class CentralPlannerScheduler(Scheduler):
         else:
             return {"taskId": task_id, "error": ""}
 
-    def _update_task_history(self, task_id, status, host=None):
+    def _update_task_history(self, task_id, status, deps=None, host=None):
         if self._task_history:
-            try:
-                if status == DONE or status == FAILED:
-                    successful = (status == DONE)
-                    self._task_history.task_finished(task_id, successful)
-                elif status == PENDING:
-                    self._task_history.task_scheduled(task_id)
-                elif status == RUNNING:
-                    self._task_history.task_started(task_id, host)
-            except:
-                logger.warning("Error saving Task history", exc_info=1)
+            self._history_queue.put(history.StatusUpdate(task_id, status, deps, host))
 
     @property
     def task_history(self):
