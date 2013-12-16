@@ -48,14 +48,3 @@ class TaskHistory(object):
         pass
 
     # TODO(erikbern): should web method (find_latest_runs etc) be abstract?
-
-
-class NopHistory(TaskHistory):
-    def task_scheduled(self, task_id):
-        pass
-
-    def task_finished(self, task_id, successful):
-        pass
-
-    def task_started(self, task_id, worker_host):
-        pass

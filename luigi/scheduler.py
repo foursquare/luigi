@@ -261,10 +261,9 @@ class CentralPlannerScheduler(Scheduler):
         self._retry_delay = retry_delay
         self._remove_delay = remove_delay
         self._worker_disconnect_delay = worker_disconnect_delay
-        self._task_history = task_history or history.NopHistory()
         self._state = SimpleTaskState(state_path)
 
-        self._task_history = task_history or history.NopHistory()
+        self._task_history = task_history
         self._resources = resources
         self._disable_failures = disable_failures
         self._disable_window = disable_window
@@ -731,16 +730,17 @@ class CentralPlannerScheduler(Scheduler):
             return {"taskId": task_id, "error": ""}
 
     def _update_task_history(self, task_id, status, host=None):
-        try:
-            if status == DONE or status == FAILED:
-                successful = (status == DONE)
-                self._task_history.task_finished(task_id, successful)
-            elif status == PENDING:
-                self._task_history.task_scheduled(task_id)
-            elif status == RUNNING:
-                self._task_history.task_started(task_id, host)
-        except:
-            logger.warning("Error saving Task history", exc_info=1)
+        if self._task_history:
+            try:
+                if status == DONE or status == FAILED:
+                    successful = (status == DONE)
+                    self._task_history.task_finished(task_id, successful)
+                elif status == PENDING:
+                    self._task_history.task_scheduled(task_id)
+                elif status == RUNNING:
+                    self._task_history.task_started(task_id, host)
+            except:
+                logger.warning("Error saving Task history", exc_info=1)
 
     @property
     def task_history(self):
