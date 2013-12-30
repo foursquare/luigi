@@ -31,6 +31,10 @@ from rpc import RemoteSchedulerResponder
 import task_history_web
 import logging
 import warnings
+import threading
+import traceback
+import sys
+
 logger = logging.getLogger("luigi.server")
 
 
@@ -132,6 +136,17 @@ def run(api_port=8082, address=None, scheduler=None, responder=None):
     pruner = tornado.ioloop.PeriodicCallback(sched.prune, 60000)
     pruner.start()
 
+    def dumpstacks(signal, frame):
+        id2name = dict([(th.ident, th.name) for th in threading.enumerate()])
+        code = []
+        for threadId, stack in sys._current_frames().items():
+            code.append("\n# Thread: %s(%d)" % (id2name.get(threadId, ""), threadId))
+            for filename, lineno, name, line in traceback.extract_stack(stack):
+                code.append('File: "%s", line %d, in %s' % (filename, lineno, name))
+                if line:
+                    code.append("  %s" % (line.strip()))
+        print "\n".join(code)
+
     def shutdown_handler(foo=None, bar=None):
         logger.info("Scheduler instance shutting down")
         sched.dump()
@@ -139,7 +154,8 @@ def run(api_port=8082, address=None, scheduler=None, responder=None):
 
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
-    signal.signal(signal.SIGQUIT, shutdown_handler)
+    signal.signal(signal.SIGQUIT, dumpstacks)
+    # signal.signal(signal.SIGQUIT, shutdown_handler)
     atexit.register(shutdown_handler)
 
     logger.info("Scheduler starting up")
