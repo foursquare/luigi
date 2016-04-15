@@ -45,7 +45,7 @@ def setup_interface_logging(conf_file=None):
     if getattr(setup_interface_logging, "has_run", False):
         return
 
-    if conf_file is None:
+    if not conf_file:
         logger = logging.getLogger('luigi-interface')
         logger.setLevel(logging.DEBUG)
 

@@ -56,7 +56,7 @@ from luigi.event import Event
 from luigi.task_register import load_task
 from luigi.scheduler import DISABLED, DONE, FAILED, PENDING, CentralPlannerScheduler
 from luigi.target import Target
-from luigi.task import Task, flatten, getpaths, Config
+from luigi.task import Task, flatten, getpaths, Config, WrapperTask
 from luigi.task_register import TaskClassException
 from luigi.task_status import RUNNING
 from luigi.parameter import FloatParameter, IntParameter, BoolParameter
@@ -179,14 +179,15 @@ class TaskProcess(multiprocessing.Process):
 
             if _is_external(self.task):
                 # External task
-                # TODO(erikbern): We should check for task completeness after non-external tasks too!
-                # This will resolve #814 and make things a lot more consistent
                 if self.task.complete():
                     status = DONE
                 else:
                     status = FAILED
                     expl = 'Task is an external data dependency ' \
                         'and data does not exist (yet?).'
+            elif self.task.complete():
+                logger.info('Not running {} because it is altready complete'.format(self.task))
+                status = DONE
             else:
                 new_deps = self._run_get_new_deps()
                 status = DONE if not new_deps else PENDING
@@ -740,12 +741,7 @@ class Worker(object):
 
     def _create_task_process(self, task):
         def update_tracking_url(tracking_url):
-            self._scheduler.add_task(
-                task_id=task.task_id,
-                worker=self._id,
-                status=RUNNING,
-                tracking_url=tracking_url,
-            )
+            pass
 
         def update_status_message(message):
             self._scheduler.set_task_status_message(task.task_id, message)
