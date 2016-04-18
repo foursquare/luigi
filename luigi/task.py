@@ -64,6 +64,7 @@ class Register(abc.ABCMeta):
     __instance_cache = {}
     _default_namespace = None
     _reg = []
+    _global_param_cache = None
     AMBIGUOUS_CLASS = object()  # Placeholder denoting an error
     """If this value is returned by :py:meth:`get_reg` then there is an
     ambiguous task name (two :py:class:`Task` have the same name). This denotes
@@ -78,6 +79,9 @@ class Register(abc.ABCMeta):
             classdict["task_namespace"] = metacls._default_namespace
 
         cls = super(Register, metacls).__new__(metacls, classname, bases, classdict)
+        # Clear the global param cache when a new task is registered.  It could have introduced
+        # more global parameters.
+        metacls._global_param_cache = None
         metacls._reg.append(cls)
 
         return cls
@@ -174,7 +178,7 @@ class Register(abc.ABCMeta):
         return task_cls
 
     @classmethod
-    def get_global_params(cls):
+    def compute_global_params(cls):
         """Compiles and returns the global parameters for all :py:class:`Task`.
 
         :return: a ``dict`` of parameter name -> parameter.
@@ -188,7 +192,13 @@ class Register(abc.ABCMeta):
                     # Could be registered multiple times in case there's subclasses
                     raise Exception('Global parameter %r registered by multiple classes' % param_name)
                 global_params[param_name] = param_obj
-        return global_params.iteritems()
+        return global_params.items()
+
+    @classmethod
+    def get_global_params(cls):
+        if cls._global_param_cache is None:
+            cls._global_param_cache = cls.compute_global_params()
+        return cls._global_param_cache
 
 
 
