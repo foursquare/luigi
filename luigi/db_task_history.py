@@ -201,20 +201,6 @@ class DbTaskHistory(object):
                 order_by(TaskEvent.ts.desc()).\
                 all()
 
-    def find_all_runs(self, session=None):
-        """
-        Return all tasks that have been updated.
-        """
-        with self._session(session) as session:
-            return session.query(TaskRecord).all()
-
-    def find_all_events(self, session=None):
-        """
-        Return all running/failed/done events.
-        """
-        with self._session(session) as session:
-            return session.query(TaskEvent).all()
-
     def find_task_by_id(self, id, session=None):
         """
         Find task with the given record ID.
