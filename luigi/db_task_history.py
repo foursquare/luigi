@@ -144,7 +144,8 @@ class DbTaskHistory(object):
             # yield the record
             yield (task_record, session)
 
-    def _get_or_create_deps_records(self, task_ids, session=None):
+    def _get_or_create_deps_records(self, dep_ids, session=None):
+        task_ids = copy(dep_ids)
         with self._session(session) as session:
             logger.debug("Finding or creating deps with id %s" % task_ids)
             # try to find existing task having given task id(s)
