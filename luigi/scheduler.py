@@ -506,7 +506,7 @@ class CentralPlannerScheduler(Scheduler):
             from luigi import db_task_history  # Needs sqlalchemy, thus imported here
             self._task_history = db_task_history.DbTaskHistory()
             # set up workers to do db updates in the background
-            for i in range(10):
+            for i in range(5):
                 w = history.HistoryWorker(self._history_queue, self._task_history)
                 w.setDaemon(True)
                 w.start()

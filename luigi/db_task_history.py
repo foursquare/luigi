@@ -38,6 +38,7 @@ See :ref:`TaskHistory` for information about how to turn out the task history fe
 import datetime
 import logging
 from contextlib import contextmanager
+from copy import copy
 
 from luigi import six
 
