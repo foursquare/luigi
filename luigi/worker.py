@@ -188,6 +188,8 @@ class TaskProcess(multiprocessing.Process):
                     expl = 'Task is an external data dependency ' \
                         'and data does not exist (yet?).'
             else:
+                if self.task.complete():
+                    raise RuntimeError('Trying to run a task that\'s already completed. Tell data-infra-team@ or stefano@')
                 new_deps = self._run_get_new_deps()
                 status = DONE if not new_deps else PENDING
 
