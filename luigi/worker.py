@@ -741,12 +741,7 @@ class Worker(object):
 
     def _create_task_process(self, task):
         def update_tracking_url(tracking_url):
-            self._scheduler.add_task(
-                task_id=task.task_id,
-                worker=self._id,
-                status=RUNNING,
-                tracking_url=tracking_url,
-            )
+            pass
 
         def update_status_message(message):
             self._scheduler.set_task_status_message(task.task_id, message)
