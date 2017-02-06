@@ -26,13 +26,13 @@ import mock
 
 import luigi.format
 from luigi import LocalTarget
-from luigi.file import LocalFileSystem
+from luigi.local_target import LocalFileSystem
 from luigi.target import FileAlreadyExists, MissingParentDirectory
 from target_test import FileSystemTargetTestMixin
 
 import itertools
 import io
-from errno import EEXIST
+from errno import EEXIST, EXDEV
 
 
 class LocalTargetTest(unittest.TestCase, FileSystemTargetTestMixin):
@@ -134,6 +134,32 @@ class LocalTargetTest(unittest.TestCase, FileSystemTargetTestMixin):
         t.move(self.copy)
         self.assertFalse(os.path.exists(self.path))
         self.assertTrue(os.path.exists(self.copy))
+
+    def test_move_across_filesystems(self):
+        t = LocalTarget(self.path)
+        with t.open('w') as f:
+            f.write('test_data')
+
+        def rename_across_filesystems(src, dst):
+            err = OSError()
+            err.errno = EXDEV
+            raise err
+
+        real_rename = os.rename
+
+        def mockrename(src, dst):
+            if '-across-fs' in src:
+                real_rename(src, dst)
+            else:
+                rename_across_filesystems(src, dst)
+
+        copy = '%s-across-fs' % self.copy
+        with mock.patch('os.rename', mockrename):
+            t.move(copy)
+
+        self.assertFalse(os.path.exists(self.path))
+        self.assertTrue(os.path.exists(copy))
+        self.assertEqual('test_data', LocalTarget(copy).open('r').read())
 
     def test_format_chain(self):
         UTF8WIN = luigi.format.TextFormat(encoding='utf8', newline='\r\n')
@@ -281,6 +307,15 @@ class FileSystemTest(unittest.TestCase):
     def tearDown(self):
         self.setUp()
 
+    def test_copy(self):
+        src = os.path.join(self.path, 'src.txt')
+        dest = os.path.join(self.path, 'newdir', 'dest.txt')
+
+        LocalTarget(src).open('w').close()
+        self.fs.copy(src, dest)
+        self.assertTrue(os.path.exists(src))
+        self.assertTrue(os.path.exists(dest))
+
     def test_mkdir(self):
         testpath = os.path.join(self.path, 'foo/bar')
 
@@ -312,10 +347,3 @@ class FileSystemTest(unittest.TestCase):
         LocalTarget(src).open('w').close()
         self.fs.move(src, dest)
         self.assertTrue(os.path.exists(dest))
-
-
-class TestImportFile(unittest.TestCase):
-
-    def test_file(self):
-        from luigi.file import File
-        self.assertTrue(isinstance(File('foo'), LocalTarget))

@@ -116,7 +116,7 @@ class Parameter(object):
     _counter = 0  # non-atomically increasing counter used for ordering parameters.
 
     def __init__(self, default=_no_value, is_global=False, significant=True, description=None,
-                 config_path=None, positional=True, always_in_help=False):
+                 config_path=None, positional=True, always_in_help=False, batch_method=None):
         """
         :param default: the default value for this parameter. This should match the type of the
                         Parameter, i.e. ``datetime.date`` for ``DateParameter`` or ``int`` for
@@ -139,8 +139,13 @@ class Parameter(object):
                                 ``positional=False`` for abstract base classes and similar cases.
         :param bool always_in_help: For the --help option in the command line
                                     parsing. Set true to always show in --help.
+        :param function(iterable[A])->A batch_method: Method to combine an iterable of parsed
+                                                        parameter values into a single value. Used
+                                                        when receiving batched parameter lists from
+                                                        the scheduler. See :ref:`batch_method`
         """
         self._default = default
+        self._batch_method = batch_method
         if is_global:
             warnings.warn("is_global support is removed. Assuming positional=False",
                           DeprecationWarning,
@@ -210,6 +215,9 @@ class Parameter(object):
         else:
             return self.normalize(value)
 
+    def _is_batchable(self):
+        return self._batch_method is not None
+
     def parse(self, x):
         """
         Parse an individual value from the input.
@@ -221,6 +229,23 @@ class Parameter(object):
         :return: the parsed value.
         """
         return x  # default impl
+
+    def _parse_list(self, xs):
+        """
+        Parse a list of values from the scheduler.
+
+        Only possible if this is_batchable() is True. This will combine the list into a single
+        parameter value using batch method. This should never need to be overridden.
+
+        :param xs: list of values to parse and combine
+        :return: the combined parsed values
+        """
+        if not self._is_batchable():
+            raise NotImplementedError('No batch method found')
+        elif not xs:
+            raise ValueError('Empty parameter list passed to parse_list')
+        else:
+            return self._batch_method(map(self.parse, xs))
 
     def serialize(self, x):
         """
@@ -317,6 +342,29 @@ class DateParameter(_DateParameterBase):
 
     A DateParameter is a Date string formatted ``YYYY-MM-DD``. For example, ``2013-07-10`` specifies
     July 10, 2013.
+
+    DateParameters are 90% of the time used to be interpolated into file system paths or the like.
+    Here is a gentle reminder of how to interpolate date parameters into strings:
+
+    .. code:: python
+
+        class MyTask(luigi.Task):
+            date = luigi.DateParameter()
+
+            def run(self):
+                templated_path = "/my/path/to/my/dataset/{date:%Y/%m/%d}/"
+                instantiated_path = templated_path.format(date=self.date)
+                # print(instantiated_path) --> /my/path/to/my/dataset/2016/06/09/
+                # ... use instantiated_path ...
+
+    To set this parameter to default to the current day. You can write code like this:
+
+    .. code:: python
+
+        import datetime
+
+        class MyTask(luigi.Task):
+            date = luigi.DateParameter(default=datetime.date.today())
     """
 
     date_format = '%Y-%m-%d'
@@ -486,6 +534,21 @@ class DateMinuteParameter(_DatetimeParameterBase):
             return value
         except ValueError:
             return super(DateMinuteParameter, self).parse(s)
+
+
+class DateSecondParameter(_DatetimeParameterBase):
+    """
+    Parameter whose value is a :py:class:`~datetime.datetime` specified to the second.
+
+    A DateSecondParameter is a `ISO 8601 <http://en.wikipedia.org/wiki/ISO_8601>`_ formatted
+    date and time specified to the second. For example, ``2013-07-10T190738`` specifies July 10, 2013 at
+    19:07:38.
+
+    The interval parameter can be used to clamp this parameter to every N seconds, instead of every second.
+    """
+
+    date_format = '%Y-%m-%dT%H%M%S'
+    _timedelta = datetime.timedelta(seconds=1)
 
 
 class IntParameter(Parameter):
@@ -786,6 +849,12 @@ class DictParameter(Parameter):
                 return obj.get_wrapped()
             return json.JSONEncoder.default(self, obj)
 
+    def normalize(self, value):
+        """
+        Ensure that dictionary parameter is converted to a FrozenOrderedDict so it can be hashed.
+        """
+        return FrozenOrderedDict(value)
+
     def parse(self, s):
         """
         Parses an immutable and ordered ``dict`` from a JSON string using standard JSON library.
@@ -833,6 +902,15 @@ class ListParameter(Parameter):
 
         $ luigi --module my_tasks MyTask --grades '[100,70]'
     """
+    def normalize(self, x):
+        """
+        Ensure that list parameter is converted to a tuple so it can be hashed.
+
+        :param str x: the value to parse.
+        :return: the normalized (hashable/immutable) value.
+        """
+        return tuple(x)
+
     def parse(self, x):
         """
         Parse an individual value from the input.
@@ -915,3 +993,132 @@ class TupleParameter(Parameter):
         :param x: the value to serialize.
         """
         return json.dumps(x)
+
+
+class NumericalParameter(Parameter):
+    """
+    Parameter whose value is a number of the specified type, e.g. ``int`` or
+    ``float`` and in the range specified.
+
+    In the task definition, use
+
+    .. code-block:: python
+
+        class MyTask(luigi.Task):
+            my_param_1 = luigi.NumericalParameter(
+                var_type=int, min_value=-3, max_value=7) # -3 <= my_param_1 < 7
+            my_param_2 = luigi.NumericalParameter(
+                var_type=int, min_value=-3, max_value=7, left_op=operator.lt, right_op=operator.le) # -3 < my_param_2 <= 7
+
+    At the command line, use
+
+    .. code-block:: console
+
+        $ luigi --module my_tasks MyTask --my-param-1 -3 --my-param-2 -2
+    """
+    def __init__(self, left_op=operator.le, right_op=operator.lt, *args, **kwargs):
+        """
+        :param function var_type: The type of the input variable, e.g. int or float.
+        :param min_value: The minimum value permissible in the accepted values
+                          range.  May be inclusive or exclusive based on left_op parameter.
+                          This should be the same type as var_type.
+        :param max_value: The maximum value permissible in the accepted values
+                          range.  May be inclusive or exclusive based on right_op parameter.
+                          This should be the same type as var_type.
+        :param function left_op: The comparison operator for the left-most comparison in
+                                 the expression ``min_value left_op value right_op value``.
+                                 This operator should generally be either
+                                 ``operator.lt`` or ``operator.le``.
+                                 Default: ``operator.le``.
+        :param function right_op: The comparison operator for the right-most comparison in
+                                  the expression ``min_value left_op value right_op value``.
+                                  This operator should generally be either
+                                  ``operator.lt`` or ``operator.le``.
+                                  Default: ``operator.lt``.
+        """
+        if "var_type" not in kwargs:
+            raise ParameterException("var_type must be specified")
+        self._var_type = kwargs.pop("var_type")
+        if "min_value" not in kwargs:
+            raise ParameterException("min_value must be specified")
+        self._min_value = kwargs.pop("min_value")
+        if "max_value" not in kwargs:
+            raise ParameterException("max_value must be specified")
+        self._max_value = kwargs.pop("max_value")
+        self._left_op = left_op
+        self._right_op = right_op
+        self._permitted_range = (
+            "{var_type} in {left_endpoint}{min_value}, {max_value}{right_endpoint}".format(
+                var_type=self._var_type.__name__,
+                min_value=self._min_value, max_value=self._max_value,
+                left_endpoint="[" if left_op == operator.le else "(",
+                right_endpoint=")" if right_op == operator.lt else "]"))
+        super(NumericalParameter, self).__init__(*args, **kwargs)
+        if self.description:
+            self.description += " "
+        else:
+            self.description = ""
+        self.description += "permitted values: " + self._permitted_range
+
+    def parse(self, s):
+        value = self._var_type(s)
+        if (self._left_op(self._min_value, value) and self._right_op(value, self._max_value)):
+            return value
+        else:
+            raise ValueError(
+                "{s} is not in the set of {permitted_range}".format(
+                    s=s, permitted_range=self._permitted_range))
+
+
+class ChoiceParameter(Parameter):
+    """
+    A parameter which takes two values:
+        1. an instance of :class:`~collections.Iterable` and
+        2. the class of the variables to convert to.
+
+    In the task definition, use
+
+    .. code-block:: python
+
+        class MyTask(luigi.Task):
+            my_param = luigi.ChoiceParameter(choices=[0.1, 0.2, 0.3], var_type=float)
+
+    At the command line, use
+
+    .. code-block:: console
+
+        $ luigi --module my_tasks MyTask --my-param 0.1
+
+    Consider using :class:`~luigi.EnumParameter` for a typed, structured
+    alternative.  This class can perform the same role when all choices are the
+    same type and transparency of parameter value on the command line is
+    desired.
+    """
+    def __init__(self, var_type=str, *args, **kwargs):
+        """
+        :param function var_type: The type of the input variable, e.g. str, int,
+                                  float, etc.
+                                  Default: str
+        :param choices: An iterable, all of whose elements are of `var_type` to
+                        restrict parameter choices to.
+        """
+        if "choices" not in kwargs:
+            raise ParameterException("A choices iterable must be specified")
+        self._choices = set(kwargs.pop("choices"))
+        self._var_type = var_type
+        assert all(type(choice) is self._var_type for choice in self._choices), "Invalid type in choices"
+        super(ChoiceParameter, self).__init__(*args, **kwargs)
+        if self.description:
+            self.description += " "
+        else:
+            self.description = ""
+        self.description += (
+            "Choices: {" + ", ".join(str(choice) for choice in self._choices) + "}")
+
+    def parse(self, s):
+        var = self._var_type(s)
+        if var in self._choices:
+            return var
+        else:
+            raise ValueError("{s} is not a valid choice from {choices}".format(
+                s=s, choices=self._choices))

@@ -15,13 +15,13 @@
 # limitations under the License.
 #
 
-from helpers import unittest
+import unittest
 import os
 import luigi
 import luigi.contrib.hdfs
 from luigi import six
 from luigi.mock import MockTarget
-from helpers import with_config
+from helpers import with_config, temporary_unloaded_module
 from luigi.contrib.external_program import ExternalProgramRunError
 from luigi.contrib.spark import SparkSubmitTask, PySparkTask
 from mock import patch, call, MagicMock
@@ -197,7 +197,18 @@ class PySparkTaskTest(unittest.TestCase):
         self.assertTrue(os.path.exists(proc_arg_list[7]))
         self.assertTrue(proc_arg_list[8].endswith('TestPySparkTask.pickle'))
 
-    @with_config({'spark': {'py-packages': 'dummy_test_module'}})
+    @with_config({'spark': {'spark-submit': ss, 'master': "spark://host:7077"}})
+    @patch('luigi.contrib.external_program.subprocess.Popen')
+    def test_run_with_pickle_dump(self, proc):
+        setup_run_process(proc)
+        job = TestPySparkTask()
+        luigi.build([job], local_scheduler=True)
+        self.assertEqual(proc.call_count, 1)
+        proc_arg_list = proc.call_args[0][0]
+        self.assertEqual(proc_arg_list[0:7], ['ss-stub', '--master', 'spark://host:7077', '--deploy-mode', 'client', '--name', 'TestPySparkTask'])
+        self.assertTrue(os.path.exists(proc_arg_list[7]))
+        self.assertTrue(proc_arg_list[8].endswith('TestPySparkTask.pickle'))
+
     @patch.dict('sys.modules', {'pyspark': MagicMock()})
     @patch('pyspark.SparkContext')
     def test_pyspark_runner(self, spark_context):
@@ -211,7 +222,8 @@ class PySparkTaskTest(unittest.TestCase):
 
         with patch.object(SparkSubmitTask, 'run', mock_spark_submit):
             job = TestPySparkTask()
-            job.run()
+            with temporary_unloaded_module(b'') as task_module:
+                with_config({'spark': {'py-packages': task_module}})(job.run)()
 
         sc.textFile.assert_called_with('input')
         sc.textFile.return_value.saveAsTextFile.assert_called_with('output')

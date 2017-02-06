@@ -91,6 +91,13 @@ class S3CopyToTable(rdbms.CopyToTable):
         """
         return None
 
+    @property
+    def aws_session_token(self):
+        """
+        Override to return the session token.
+        """
+        return None
+
     @abc.abstractproperty
     def copy_options(self):
         """
@@ -215,7 +222,6 @@ class S3CopyToTable(rdbms.CopyToTable):
                     name=name,
                     type=type) for name, type in self.columns
             )
-
             query = ("CREATE {type} TABLE "
                      "{table} ({coldefs}) "
                      "{table_attributes}").format(
@@ -225,6 +231,9 @@ class S3CopyToTable(rdbms.CopyToTable):
                 table_attributes=self.table_attributes)
 
             connection.cursor().execute(query)
+        else:
+            raise ValueError("create_table() found no columns for %r"
+                             % self.table)
 
     def run(self):
         """
@@ -254,13 +263,21 @@ class S3CopyToTable(rdbms.CopyToTable):
         """
         Defines copying from s3 into redshift.
         """
+        # if session token is set, create token string
+        if self.aws_session_token:
+            token = ';token=%s' % self.aws_session_token
+        # otherwise, leave token string empty
+        else:
+            token = ''
+
         logger.info("Inserting file: %s", f)
         cursor.execute("""
          COPY %s from '%s'
-         CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s'
+         CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s%s'
          %s
          ;""" % (self.table, f, self.aws_access_key_id,
-                 self.aws_secret_access_key, self.copy_options))
+                 self.aws_secret_access_key, token,
+                 self.copy_options))
 
     def output(self):
         """
@@ -365,15 +382,22 @@ class S3CopyJSONToTable(S3CopyToTable):
         """
         Defines copying JSON from s3 into redshift.
         """
+        # if session token is set, create token string
+        if self.aws_session_token:
+            token = ';token=%s' % self.aws_session_token
+        # otherwise, leave token string empty
+        else:
+            token = ''
 
+        logger.info("Inserting file: %s", f)
         cursor.execute("""
          COPY %s from '%s'
-         CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s'
+         CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s%s'
          JSON AS '%s' %s
          %s
          ;""" % (self.table, f, self.aws_access_key_id,
-                 self.aws_secret_access_key, self.jsonpath,
-                 self.copy_json_options, self.copy_options))
+                 self.aws_secret_access_key, token,
+                 self.jsonpath, self.copy_json_options, self.copy_options))
 
 
 class RedshiftManifestTask(S3PathTask):
@@ -613,7 +637,7 @@ class RedshiftUnloadTask(postgres.PostgresQuery):
             self.aws_secret_access_key = os.environ['AWS_SECRET_ACCESS_KEY']
 
         unload_query = self.unload_query.format(
-            query=self.query().replace("'", "\'"),
+            query=self.query().replace("'", r"\'"),
             s3_unload_path=self.s3_unload_path,
             unload_options=self.unload_options,
             s3_access_key=self.aws_access_key_id,

@@ -24,18 +24,19 @@ from luigi.task import Task, Config, ExternalTask, WrapperTask, namespace
 from luigi import target
 from luigi.target import Target
 
-from luigi import file  # wtf @ naming
-from luigi.file import File, LocalTarget
+from luigi import local_target
+from luigi.local_target import LocalTarget
 
 from luigi import rpc
 from luigi.rpc import RemoteScheduler, RPCError
 from luigi import parameter
 from luigi.parameter import (
     Parameter,
-    DateParameter, MonthParameter, YearParameter, DateHourParameter, DateMinuteParameter,
+    DateParameter, MonthParameter, YearParameter, DateHourParameter, DateMinuteParameter, DateSecondParameter,
     DateIntervalParameter, TimeDeltaParameter,
     IntParameter, FloatParameter, BooleanParameter, BoolParameter,
-    TaskParameter, EnumParameter, DictParameter, ListParameter, TupleParameter
+    TaskParameter, EnumParameter, DictParameter, ListParameter, TupleParameter,
+    NumericalParameter, ChoiceParameter
 )
 
 from luigi import configuration
@@ -51,11 +52,12 @@ from .tools import range  # just makes the tool classes available from command l
 
 __all__ = [
     'task', 'Task', 'Config', 'ExternalTask', 'WrapperTask', 'namespace',
-    'target', 'Target', 'File', 'LocalTarget', 'rpc', 'RemoteScheduler',
+    'target', 'Target', 'LocalTarget', 'rpc', 'RemoteScheduler',
     'RPCError', 'parameter', 'Parameter', 'DateParameter', 'MonthParameter',
-    'YearParameter', 'DateHourParameter', 'DateMinuteParameter', 'range',
+    'YearParameter', 'DateHourParameter', 'DateMinuteParameter', 'DateSecondParameter', 'range',
     'DateIntervalParameter', 'TimeDeltaParameter', 'IntParameter',
     'FloatParameter', 'BooleanParameter', 'BoolParameter', 'TaskParameter',
     'ListParameter', 'TupleParameter', 'EnumParameter', 'DictParameter',
-    'configuration', 'interface', 'file', 'run', 'build', 'event', 'Event'
+    'configuration', 'interface', 'local_target', 'run', 'build', 'event', 'Event',
+    'NumericalParameter', 'ChoiceParameter'
 ]

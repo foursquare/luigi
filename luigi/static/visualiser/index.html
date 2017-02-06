@@ -231,16 +231,6 @@
                 {{#statusMessage}}<button class="btn btn-primary btn-xs statusMessage" title="Status message" data-toggle="tooltip" data-task-id="{{taskId}}" data-display-name={{displayName}}><i class="fa fa-comment"></i></button>{{/statusMessage}}
             </div>
         </script>
-        <script type="text/template" name="rowDetailsTemplate">
-          <table cellpadding="5" cellspacing="0" border="0" style="padding-left:50px;">
-          {{#error}}
-            <tr>
-              <td>Exception:</td>
-              <td class="error-trace"></td>
-            </tr>
-          {{ /error }}
-          </table>
-        </script>
         <script type="text/template" name="errorTemplate">
           <div class="modal-dialog">
             <div class="modal-content">
@@ -284,6 +274,9 @@
                   </div>
                   <div class="modal-body">
                     Are you sure you want to disable this worker?
+                    <p>
+                        A disabled worker will finish its existing tasks but not start new ones.
+                    </p>
                   </div>
                   <div class="modal-footer">
                     <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
@@ -293,22 +286,22 @@
               </div>
             </div>
             {{#workers}}
-            {{#num_pending}}
-            <div class="box">
-            {{/num_pending}}
-            {{^num_pending}}
+            {{#is_disabled}}
             <div class="box box-solid box-default">
-            {{/num_pending}}
+            {{/is_disabled}}
+            {{^is_disabled}}
+            <div class="box">
+            {{/is_disabled}}
                 <div class="box-header with-border">
                     <h3 class="box-title">{{name}}</h3>
                     <div class="box-tools pull-right">
-                      {{#num_pending}}
+                      {{^is_disabled}}
                       <div class="button-tooltip" data-toggle="tooltip" title="Disable Worker">
                         <button type="button" class="btn btn-danger btn-disable-worker" data-toggle="modal" data-target="#disableWorkerModal" data-worker="{{name}}">
                           <i class="fa fa-fire-extinguisher"></i>
                         </button>
                       </div>
-                      {{/num_pending}}
+                      {{/is_disabled}}
                     </div>
                 </div>
                 <div class="box-body">
@@ -318,6 +311,9 @@
                     Running: {{num_running}}<br>
                     Pending: {{num_pending}}<br>
                     Unique Pending: {{num_uniques}}<br>
+                    {{#is_disabled}}
+                    This worker is <b>disabled</b>. It will not start new tasks.<br>
+                    {{/is_disabled}}
 
                     {{#num_running}}
                     <hr>
@@ -484,6 +480,16 @@
                       <span class="info-box-icon bg-aqua"><i class="fa fa-spinner fa-pulse"></i></span>
                       <div class="info-box-content">
                         <span class="info-box-text">Running Tasks</span>
+                        <span class="info-box-number">?</span>
+                      </div><!-- /.info-box-content -->
+                    </div><!-- /.info-box -->
+                  </div>
+
+                  <div class="col-md-3 col-sm-6 col-xs-12">
+                    <div class="info-box status-info" data-color='purple' data-category='BATCH_RUNNING' id="BATCH_RUNNING_info">
+                      <span class="info-box-icon bg-purple"><i class="fa fa-spinner fa-pulse"></i></span>
+                      <div class="info-box-content">
+                        <span class="info-box-text">Batch Running Tasks</span>
                         <span class="info-box-number">?</span>
                       </div><!-- /.info-box-content -->
                     </div><!-- /.info-box -->

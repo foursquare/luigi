@@ -53,7 +53,7 @@ except ImportError:
     pass
 
 
-def _warn_node(self, msg, node):
+def _warn_node(self, msg, node, *args, **kwargs):
     """
     Mute warnings that are like ``WARNING: nonlocal image URI found: https://img. ...``
 
@@ -62,7 +62,8 @@ def _warn_node(self, msg, node):
     http://stackoverflow.com/questions/12772927/specifying-an-online-image-in-sphinx-restructuredtext-format
     """
     if not msg.startswith('nonlocal image URI found:'):
-        self._warnfunc(msg, '%s:%s' % get_source_line(node))
+        self._warnfunc(msg, '%s:%s' % get_source_line(node), *args, **kwargs)
+
 
 sphinx.environment.BuildEnvironment.warn_node = _warn_node
 
@@ -82,7 +83,7 @@ autoclass_content = 'both'
 # -- General configuration ------------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
-#needs_sphinx = '1.0'
+needs_sphinx = '1.4.4'  # Value mirrored in doc/conf.py
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom

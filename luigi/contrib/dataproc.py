@@ -126,7 +126,7 @@ class DataprocPysparkTask(DataprocBaseTask):
     job_args = luigi.Parameter(default="")
 
     def run(self):
-        self.submit_pyspark_job(job_file="main_job.py",
+        self.submit_pyspark_job(job_file=self.job_file,
                                 extra_files=self.extra_files.split(",") if self.extra_files else [],
                                 job_args=self.job_args.split(",") if self.job_args else [])
         self.wait_for_job()
@@ -144,6 +144,7 @@ class CreateDataprocClusterTask(_DataprocBaseTask):
     worker_disk_size = luigi.Parameter(default="100")
     worker_normal_count = luigi.Parameter(default="2")
     worker_preemptible_count = luigi.Parameter(default="0")
+    image_version = luigi.Parameter(default="")
 
     def _get_cluster_status(self):
         return self.dataproc_client.projects().regions().clusters()\
@@ -162,6 +163,8 @@ class CreateDataprocClusterTask(_DataprocBaseTask):
 
     def run(self):
         base_uri = "https://www.googleapis.com/compute/v1/projects/{}".format(self.gcloud_project_id)
+        software_config = {"imageVersion": self.image_version} if self.image_version else {}
+
         cluster_conf = {
             "clusterName": self.dataproc_cluster_name,
             "projectId": self.gcloud_project_id,
@@ -193,7 +196,8 @@ class CreateDataprocClusterTask(_DataprocBaseTask):
                 "secondaryWorkerConfig": {
                     "numInstances": self.worker_preemptible_count,
                     "isPreemptible": True
-                }
+                },
+                "softwareConfig": software_config
             }
         }
 

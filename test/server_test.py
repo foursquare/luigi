@@ -25,7 +25,7 @@ from helpers import unittest, skipOnTravis
 import luigi.rpc
 import luigi.server
 import luigi.cmdline
-from luigi.scheduler import CentralPlannerScheduler
+from luigi.scheduler import Scheduler
 from luigi.six.moves.urllib.parse import (
     urlencode, ParseResult, quote as urlquote
 )
@@ -58,7 +58,7 @@ def _is_running_from_main_thread():
 class ServerTestBase(AsyncHTTPTestCase):
 
     def get_app(self):
-        return luigi.server.app(CentralPlannerScheduler())
+        return luigi.server.app(Scheduler())
 
     def setUp(self):
         super(ServerTestBase, self).setUp()
@@ -84,7 +84,7 @@ class ServerTestBase(AsyncHTTPTestCase):
 
 class ServerTest(ServerTestBase):
 
-    def test_visualizer(self):
+    def test_visualiser(self):
         page = self.fetch('/').body
         self.assertTrue(page.find(b'<title>') != -1)
 
@@ -97,6 +97,17 @@ class ServerTest(ServerTestBase):
 
     def test_api_404(self):
         self._test_404('/api/foo')
+
+    def test_api_cors_headers(self):
+        response = self.fetch('/api/graph')
+        headers = dict(response.headers)
+
+        def _set(name):
+            return set(headers[name].replace(" ", "").split(","))
+
+        self.assertSetEqual(_set("Access-Control-Allow-Headers"), {"Content-Type", "Accept", "Authorization", "Origin"})
+        self.assertSetEqual(_set("Access-Control-Allow-Methods"), {"GET", "OPTIONS"})
+        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
 
 
 class _ServerTest(unittest.TestCase):
@@ -142,6 +153,7 @@ class _ServerTest(unittest.TestCase):
     def test_raw_ping_extended(self):
         self.sch._request('/api/ping', {'worker': 'xyz', 'foo': 'bar'})
 
+    @skipOnTravis('https://travis-ci.org/spotify/luigi/jobs/166833694')
     def test_404(self):
         with self.assertRaises(luigi.rpc.RPCError):
             self.sch._request('/api/fdsfds', {'dummy': 1})

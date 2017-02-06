@@ -16,7 +16,7 @@
 #
 """
 Simple REST server that takes commands in a JSON payload
-Interface to the :py:class:`~luigi.scheduler.CentralPlannerScheduler` class.
+Interface to the :py:class:`~luigi.scheduler.Scheduler` class.
 See :doc:`/central_scheduler` for more info.
 """
 #
@@ -38,9 +38,7 @@ See :doc:`/central_scheduler` for more info.
 import atexit
 import json
 import logging
-import mimetypes
 import os
-import posixpath
 import signal
 import sys
 import datetime
@@ -56,8 +54,7 @@ import tornado.netutil
 import tornado.web
 from tornado.concurrent import Future
 
-from luigi.scheduler import CentralPlannerScheduler
-
+from luigi.scheduler import Scheduler, RPC_METHODS
 
 logger = logging.getLogger("luigi.server")
 
@@ -80,36 +77,16 @@ class RPCHandler(tornado.web.RequestHandler):
 
     def initialize(self, scheduler):
         self._scheduler = scheduler
+        self.set_header("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, Origin")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Origin", "*")
 
     def get(self, method):
-        if method not in [
-            'add_task',
-            'add_worker',
-            'dep_graph',
-            'disable_worker',
-            'fetch_error',
-            'get_work',
-            'graph',
-            'inverse_dep_graph',
-            'ping',
-            'prune',
-            're_enable_task',
-            'resource_list',
-            'task_list',
-            'task_search',
-            'update_resources',
-            'worker_list',
-            'set_task_status_message',
-            'get_task_status_message',
-        ]:
+        if method not in RPC_METHODS:
             self.send_error(404)
             return
         payload = self.get_argument('data', default="{}")
         arguments = json.loads(payload)
-
-        # TODO: we should probably denote all methods on the scheduler that are "API-level"
-        # versus internal methods. Right now you can do a REST method call to any method
-        # defined on the scheduler, which is pretty bad from a security point of view.
 
         if hasattr(self._scheduler, method):
             result = getattr(self._scheduler, method)(**arguments)
@@ -177,21 +154,6 @@ class ByParamsHandler(BaseTaskHistoryHandler):
         self.render("recent.html", tasks=tasks)
 
 
-class StaticFileHandler(tornado.web.RequestHandler):
-    def get(self, path):
-        # Path checking taken from Flask's safe_join function:
-        # https://github.com/mitsuhiko/flask/blob/1d55b8983/flask/helpers.py#L563-L587
-        path = posixpath.normpath(path)
-        if os.path.isabs(path) or path.startswith(".."):
-            return self.send_error(404)
-
-        extension = os.path.splitext(path)[1]
-        if extension in mimetypes.types_map:
-            self.set_header("Content-Type", mimetypes.types_map[extension])
-        data = pkg_resources.resource_string(__name__, os.path.join("static", path))
-        self.write(data)
-
-
 class RootPathHandler(BaseTaskHistoryHandler):
     def get(self):
         self.redirect("/static/visualiser/index.html")
@@ -199,10 +161,10 @@ class RootPathHandler(BaseTaskHistoryHandler):
 
 def app(scheduler):
     settings = {"static_path": os.path.join(os.path.dirname(__file__), "static"),
-                "unescape": tornado.escape.xhtml_unescape}
+                "unescape": tornado.escape.xhtml_unescape,
+                }
     handlers = [
         (r'/api/(.*)', RPCHandler, {"scheduler": scheduler}),
-        (r'/static/(.*)', StaticFileHandler),
         (r'/', RootPathHandler, {'scheduler': scheduler}),
         (r'/history', RecentRunHandler, {'scheduler': scheduler}),
         (r'/history/by_name/(.*?)', ByNameHandler, {'scheduler': scheduler}),
@@ -213,9 +175,7 @@ def app(scheduler):
     return api_app
 
 
-def _init_api(scheduler, responder=None, api_port=None, address=None, unix_socket=None):
-    if responder:
-        raise Exception('The "responder" argument is no longer supported')
+def _init_api(scheduler, api_port=None, address=None, unix_socket=None):
     api_app = app(scheduler)
     if unix_socket is not None:
         api_sockets = [tornado.netutil.bind_unix_socket(unix_socket)]
@@ -228,19 +188,18 @@ def _init_api(scheduler, responder=None, api_port=None, address=None, unix_socke
     return [s.getsockname() for s in api_sockets]
 
 
-def run(api_port=8082, address=None, unix_socket=None, scheduler=None, responder=None):
+def run(api_port=8082, address=None, unix_socket=None, scheduler=None):
     """
     Runs one instance of the API server.
     """
     if scheduler is None:
-        scheduler = CentralPlannerScheduler()
+        scheduler = Scheduler()
 
     # load scheduler state
     scheduler.load()
 
     _init_api(
         scheduler=scheduler,
-        responder=responder,
         api_port=api_port,
         address=address,
         unix_socket=unix_socket,

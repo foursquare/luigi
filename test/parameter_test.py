@@ -285,6 +285,114 @@ class ParameterTest(LuigiTestCase):
         b_tuple = ((1, 2), (3, 4))
         self.assertEqual(b_tuple, a.parse(a.serialize(b_tuple)))
 
+    def test_parse_list_without_batch_method(self):
+        param = luigi.Parameter()
+        for xs in [], ['x'], ['x', 'y']:
+            self.assertRaises(NotImplementedError, param._parse_list, xs)
+
+    def test_parse_empty_list_raises_value_error(self):
+        for batch_method in (max, min, tuple, ','.join):
+            param = luigi.Parameter(batch_method=batch_method)
+            self.assertRaises(ValueError, param._parse_list, [])
+
+    def test_parse_int_list_max(self):
+        param = luigi.IntParameter(batch_method=max)
+        self.assertEqual(17, param._parse_list(['7', '17', '5']))
+
+    def test_parse_string_list_max(self):
+        param = luigi.Parameter(batch_method=max)
+        self.assertEqual('7', param._parse_list(['7', '17', '5']))
+
+    def test_parse_list_as_tuple(self):
+        param = luigi.IntParameter(batch_method=tuple)
+        self.assertEqual((7, 17, 5), param._parse_list(['7', '17', '5']))
+
+
+class TestParametersHashability(LuigiTestCase):
+    def test_date(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.DateParameter()
+        p = luigi.parameter.DateParameter()
+        self.assertEqual(hash(Foo(args=datetime.date(2000, 1, 1)).args), hash(p.parse('2000-1-1')))
+
+    def test_dateminute(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.DateMinuteParameter()
+        p = luigi.parameter.DateMinuteParameter()
+        self.assertEqual(hash(Foo(args=datetime.datetime(2000, 1, 1, 12, 0)).args), hash(p.parse('2000-1-1T1200')))
+
+    def test_dateinterval(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.DateIntervalParameter()
+        p = luigi.parameter.DateIntervalParameter()
+        di = luigi.date_interval.Custom(datetime.date(2000, 1, 1), datetime.date(2000, 2, 12))
+        self.assertEqual(hash(Foo(args=di).args), hash(p.parse('2000-01-01-2000-02-12')))
+
+    def test_timedelta(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.TimeDeltaParameter()
+        p = luigi.parameter.TimeDeltaParameter()
+        self.assertEqual(hash(Foo(args=datetime.timedelta(days=2, hours=3, minutes=2)).args), hash(p.parse('P2DT3H2M')))
+
+    def test_boolean(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.BoolParameter()
+
+        p = luigi.parameter.BoolParameter()
+        self.assertEqual(hash(Foo(args=True).args), hash(p.parse('true')))
+
+    def test_int(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.IntParameter()
+
+        p = luigi.parameter.IntParameter()
+        self.assertEqual(hash(Foo(args=1).args), hash(p.parse('1')))
+
+    def test_float(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.FloatParameter()
+
+        p = luigi.parameter.FloatParameter()
+        self.assertEqual(hash(Foo(args=1.0).args), hash(p.parse('1')))
+
+    def test_enum(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.EnumParameter(enum=MyEnum)
+
+        p = luigi.parameter.EnumParameter(enum=MyEnum)
+        self.assertEqual(hash(Foo(args=MyEnum.A).args), hash(p.parse('A')))
+
+    def test_dict(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.DictParameter()
+
+        p = luigi.parameter.DictParameter()
+        self.assertEqual(hash(Foo(args=dict(foo=1, bar="hello")).args), hash(p.parse('{"foo":1,"bar":"hello"}')))
+
+    def test_list(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.ListParameter()
+
+        p = luigi.parameter.ListParameter()
+        self.assertEqual(hash(Foo(args=[1, "hello"]).args), hash(p.normalize(p.parse('[1,"hello"]'))))
+
+    def test_tuple(self):
+        class Foo(luigi.Task):
+            args = luigi.parameter.TupleParameter()
+
+        p = luigi.parameter.TupleParameter()
+        self.assertEqual(hash(Foo(args=(1, "hello")).args), hash(p.parse('(1,"hello")')))
+
+    def test_task(self):
+        class Bar(luigi.Task):
+            pass
+
+        class Foo(luigi.Task):
+            args = luigi.parameter.TaskParameter()
+
+        p = luigi.parameter.TaskParameter()
+        self.assertEqual(hash(Foo(args=Bar).args), hash(p.parse('Bar')))
+
 
 class TestNewStyleGlobalParameters(LuigiTestCase):
 
@@ -456,6 +564,16 @@ class TestParamWithDefaultFromConfig(LuigiTestCase):
     def testDateMinuteDeprecated(self):
         p = luigi.DateMinuteParameter(config_path=dict(section="foo", name="bar"))
         self.assertEqual(datetime.datetime(2001, 2, 3, 4, 30, 0), _value(p))
+
+    @with_config({"foo": {"bar": "2001-02-03T040506"}})
+    def testDateSecond(self):
+        p = luigi.DateSecondParameter(config_path=dict(section="foo", name="bar"))
+        self.assertEqual(datetime.datetime(2001, 2, 3, 4, 5, 6), _value(p))
+
+    @with_config({"foo": {"bar": "2001-02-03T040507"}})
+    def testDateSecondWithInterval(self):
+        p = luigi.DateSecondParameter(config_path=dict(section="foo", name="bar"), interval=2)
+        self.assertEqual(datetime.datetime(2001, 2, 3, 4, 5, 6), _value(p))
 
     @with_config({"foo": {"bar": "2001-02-03"}})
     def testDate(self):
@@ -737,6 +855,16 @@ class TestParamWithDefaultFromConfig(LuigiTestCase):
     @with_config({"foo": {"bar": "((1,2),(3,4))"}})
     def testTupleConfig(self):
         self.assertTrue(_value(luigi.TupleParameter(config_path=dict(section="foo", name="bar"))))
+
+    @with_config({"foo": {"bar": "-3"}})
+    def testNumericalParameter(self):
+        p = luigi.NumericalParameter(min_value=-3, max_value=7, var_type=int, config_path=dict(section="foo", name="bar"))
+        self.assertEqual(-3, _value(p))
+
+    @with_config({"foo": {"bar": "3"}})
+    def testChoiceParameter(self):
+        p = luigi.ChoiceParameter(var_type=int, choices=[1, 2, 3], config_path=dict(section="foo", name="bar"))
+        self.assertEqual(3, _value(p))
 
 
 class OverrideEnvStuff(LuigiTestCase):

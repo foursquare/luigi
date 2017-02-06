@@ -14,6 +14,7 @@ function visualiserApp(luigi) {
     var taskIcons = {
         PENDING: 'pause',
         RUNNING: 'play',
+        BATCH_RUNNING: 'play',
         DONE: 'check',
         FAILED: 'times',
         UPSTREAM_FAILED: 'warning',
@@ -76,7 +77,7 @@ function visualiserApp(luigi) {
             taskParams: taskParams,
             displayName: task.display_name,
             priority: task.priority,
-            resources: JSON.stringify(task.resources),
+            resources: JSON.stringify(task.resources).replace(/,"/g, ', "'),
             displayTime: displayTime,
             displayTimestamp: task.last_updated,
             timeRunning: time_running,
@@ -101,6 +102,10 @@ function visualiserApp(luigi) {
             case 'RUNNING':
                 iconClass = 'fa-play';
                 iconColor = 'aqua';
+                break;
+            case 'BATCH_RUNNING':
+                iconClass = 'fa-play';
+                iconColor = 'purple';
                 break;
             case 'DONE':
                 iconClass = 'fa-check';
@@ -235,6 +240,7 @@ function visualiserApp(luigi) {
         worker.tasks.sort(function(task1, task2) { return task1.timeRunning - task2.timeRunning; });
         worker.start_time = new Date(worker.started * 1000).toLocaleString();
         worker.active = new Date(worker.last_active * 1000).toLocaleString();
+        worker.is_disabled = worker.state === 'disabled';
         return worker;
     }
 
@@ -247,6 +253,7 @@ function visualiserApp(luigi) {
         resource.percent_used = 100 * resource.num_used / resource.num_total;
         if (resource.percent_used >= 100) {
             resource.bar_type = 'danger';
+            resource.percent_used = 100;
         } else if (resource.percent_used > 50) {
             resource.bar_type = 'warning';
         } else {
@@ -630,6 +637,7 @@ function visualiserApp(luigi) {
         var mostImportantCategory = function (cat1, cat2) {
             var priorities = [
                 'RUNNING',
+                'BATCH_RUNNING',
                 'DONE',
                 'PENDING',
                 'UPSTREAM_DISABLED',
@@ -733,31 +741,35 @@ function visualiserApp(luigi) {
             updateTaskCategory(dt, 'RUNNING', runningTasks);
         });
 
-        var ajax2 = luigi.getFailedTaskList(function(failedTasks) {
+        var ajax2 = luigi.getBatchRunningTaskList(function(batchRunningTasks) {
+            updateTaskCategory(dt, 'BATCH_RUNNING', batchRunningTasks);
+        });
+
+        var ajax3 = luigi.getFailedTaskList(function(failedTasks) {
             updateTaskCategory(dt, 'FAILED', failedTasks);
         });
 
-        var ajax3 = luigi.getUpstreamFailedTaskList(function(upstreamFailedTasks) {
+        var ajax4 = luigi.getUpstreamFailedTaskList(function(upstreamFailedTasks) {
             updateTaskCategory(dt, 'UPSTREAM_FAILED', upstreamFailedTasks);
         });
 
-        var ajax4 = luigi.getDisabledTaskList(function(disabledTasks) {
+        var ajax5 = luigi.getDisabledTaskList(function(disabledTasks) {
             updateTaskCategory(dt, 'DISABLED', disabledTasks);
         });
 
-        var ajax5 = luigi.getUpstreamDisabledTaskList(function(upstreamDisabledTasks) {
+        var ajax6 = luigi.getUpstreamDisabledTaskList(function(upstreamDisabledTasks) {
             updateTaskCategory(dt, 'UPSTREAM_DISABLED', upstreamDisabledTasks);
         });
 
-        var ajax6 = luigi.getPendingTaskList(function(pendingTasks) {
+        var ajax7 = luigi.getPendingTaskList(function(pendingTasks) {
             updateTaskCategory(dt, 'PENDING', pendingTasks);
         });
 
-        var ajax7 = luigi.getDoneTaskList(function(doneTasks) {
+        var ajax8 = luigi.getDoneTaskList(function(doneTasks) {
             updateTaskCategory(dt, 'DONE', doneTasks);
         });
 
-        $.when(ajax1, ajax2, ajax3, ajax4, ajax5, ajax6, ajax7).done(function () {
+        $.when(ajax1, ajax2, ajax3, ajax4, ajax5, ajax6, ajax7, ajax8).done(function () {
             dt.draw();
 
             $('.sidebar').html(renderSidebar(dt.column(1).data()));
@@ -900,26 +912,9 @@ function visualiserApp(luigi) {
             var tr = $(this).closest('tr');
             var row = dt.row( tr );
             var data = row.data();
-
-            if ( row.child.isShown() ) {
-                // This row is already open - close it
-                row.child.hide();
-            }
-            else {
-                // Open this row
-                row.child(Mustache.render(templates['rowDetailsTemplate'], data)).show();
-
-                // If error state is present retrieve the error
-                if (data.error) {
-                    errorTrace = row.child().find('.error-trace');
-                    luigi.getErrorTrace(data.taskId, function(error) {
-                        errorTrace.html('<pre class="pre-scrollable">'+decodeError(error.error)+'</pre>');
-                    });
-                }
-
-
-            }
-
+            luigi.getErrorTrace(data.taskId, function(error) {
+                showErrorTrace(error);
+            });
         } );
 
         $('#taskTable tbody').on('click', 'td.details-control .re-enable-button', function () {

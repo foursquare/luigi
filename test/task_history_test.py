@@ -30,8 +30,8 @@ luigi.notifications.DEBUG = True
 class TaskHistoryTest(LuigiTestCase):
 
     def test_run(self):
-        sch = luigi.scheduler.CentralPlannerScheduler()
-        sch._task_history = True  # trick to enable task history queue
+        th = SimpleTaskHistory()
+        sch = luigi.scheduler.Scheduler(task_history_impl=th)
         with luigi.worker.Worker(scheduler=sch) as w:
             class MyTask(luigi.Task):
                 pass

@@ -24,6 +24,7 @@ try:
     from itertools import imap as map
 except ImportError:
     pass
+from contextlib import contextmanager
 import logging
 import traceback
 import warnings
@@ -146,14 +147,61 @@ class Task(object):
     #: Only works when using multiple workers.
     worker_timeout = None
 
+    #: Maximum number of tasks to run together as a batch. Infinite by default
+    max_batch_size = float('inf')
+
+    @property
+    def batchable(self):
+        """
+        True if this instance can be run as part of a batch. By default, True
+        if it has any batched parameters
+        """
+        return bool(self.batch_param_names())
+
+    @property
+    def retry_count(self):
+        """
+        Override this positive integer to have different ``retry_count`` at task level
+        Check :ref:`scheduler-config`
+        """
+        return None
+
+    @property
+    def disable_hard_timeout(self):
+        """
+        Override this positive integer to have different ``disable_hard_timeout`` at task level.
+        Check :ref:`scheduler-config`
+        """
+        return None
+
+    @property
+    def disable_window_seconds(self):
+        """
+        Override this positive integer to have different ``disable_window_seconds`` at task level.
+        Check :ref:`scheduler-config`
+        """
+        return None
+
     @property
     def owner_email(self):
         '''
         Override this to send out additional error emails to task owner, in addition to the one
-        defined in `core`.`error-email`. This should return a string or a list of strings. e.g.
+        defined in the global configuration. This should return a string or a list of strings. e.g.
         'test@exmaple.com' or ['test1@example.com', 'test2@example.com']
         '''
         return None
+
+    def _owner_list(self):
+        """
+        Turns the owner_email property into a list. This should not be overridden.
+        """
+        owner_email = self.owner_email
+        if owner_email is None:
+            return []
+        elif isinstance(owner_email, six.string_types):
+            return owner_email.split(',')
+        else:
+            return owner_email
 
     @property
     def use_cmdline_section(self):
@@ -217,6 +265,10 @@ class Task(object):
         # The order the parameters are created matters. See Parameter class
         params.sort(key=lambda t: t[1]._counter)
         return params
+
+    @classmethod
+    def batch_param_names(cls):
+        return [name for name, p in cls.get_params() if p._is_batchable()]
 
     @classmethod
     def get_param_names(cls, include_significant=False):
@@ -308,7 +360,11 @@ class Task(object):
         kwargs = {}
         for param_name, param in cls.get_params():
             if param_name in params_str:
-                kwargs[param_name] = param.parse(params_str[param_name])
+                param_str = params_str[param_name]
+                if isinstance(param_str, list):
+                    kwargs[param_name] = param._parse_list(param_str)
+                else:
+                    kwargs[param_name] = param.parse(param_str)
 
         return cls(**kwargs)
 
@@ -337,16 +393,15 @@ class Task(object):
         :param kwargs:
         :return:
         """
-        k = self.param_kwargs.copy()
-        k.update(six.iteritems(kwargs))
-
         if cls is None:
             cls = self.__class__
 
         new_k = {}
         for param_name, param_class in cls.get_params():
-            if param_name in k:
-                new_k[param_name] = k[param_name]
+            if param_name in kwargs:
+                new_k[param_name] = kwargs[param_name]
+            elif hasattr(self, param_name):
+                new_k[param_name] = getattr(self, param_name)
 
         return cls(**new_k)
 
@@ -506,6 +561,37 @@ class Task(object):
 
         Default behavior is to send an None value"""
         pass
+
+    @contextmanager
+    def no_unpicklable_properties(self):
+        """
+        Remove unpicklable properties before dump task and resume them after.
+
+        This method could be called in subtask's dump method, to ensure unpicklable
+        properties won't break dump.
+
+        This method is a context-manager which can be called as below:
+
+        .. code-block: python
+
+            class DummyTask(luigi):
+
+                def _dump(self):
+                    with self.no_unpicklable_properties():
+                        pickle.dumps(self)
+
+        """
+        unpicklable_properties = ('set_tracking_url', 'set_status_message')
+        reserved_properties = {}
+        for property_name in unpicklable_properties:
+            if hasattr(self, property_name):
+                reserved_properties[property_name] = getattr(self, property_name)
+                setattr(self, property_name, 'placeholder_during_pickling')
+
+        yield
+
+        for property_name, value in six.iteritems(reserved_properties):
+            setattr(self, property_name, value)
 
 
 class MixinNaiveBulkComplete(object):
