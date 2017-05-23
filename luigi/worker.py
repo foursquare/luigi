@@ -453,9 +453,11 @@ class Worker(object):
             for batch_task in self._batch_running_tasks.pop(task_id):
                 self._add_task_history.append((batch_task, status, True))
 
-        self._scheduler.add_task(*args, **kwargs)
-
-        logger.info('Informed scheduler that task   %s   has status   %s', task_id, status)
+        if status != UNKNOWN:
+            self._scheduler.add_task(*args, **kwargs)
+            logger.info('Informed scheduler that task   %s   has status   %s', task_id, status)
+        else:
+            logger.info('Task   %s   has status UNKNOWN, the scheduler was not informed', task_id)
 
     def __enter__(self):
         """
